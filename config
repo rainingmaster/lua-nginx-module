@@ -553,5 +553,7 @@ else
     CORE_LIBS="$CORE_LIBS $ngx_module_libs"
 fi
 
+have=NGX_HAVE_HTTP_LUA_MODULE . auto/have
+
 #CFLAGS=$"$CFLAGS -DLUA_DEFAULT_PATH='\"/usr/local/openresty/lualib/?.lua\"'"
 #CFLAGS=$"$CFLAGS -DLUA_DEFAULT_CPATH='\"/usr/local/openresty/lualib/?.so\"'"
