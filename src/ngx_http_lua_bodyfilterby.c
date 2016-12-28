@@ -358,7 +358,7 @@ ngx_http_lua_body_filter_param_get(lua_State *L)
 
     dd("index: %d", idx);
 
-    if (idx != 1 && idx != 2) {
+    if (idx < 1 && idx > 3) {
         lua_pushnil(L);
         return 1;
     }
@@ -366,7 +366,52 @@ ngx_http_lua_body_filter_param_get(lua_State *L)
     lua_getglobal(L, ngx_http_lua_chain_key);
     in = lua_touserdata(L, -1);
 
-    if (idx == 2) {
+    switch (idx) {
+    case 1:
+        size = 0;
+
+        if (in == NULL) {
+            /* being a cleared chain on the Lua land */
+            lua_pushliteral(L, "");
+            return 1;
+        }
+
+        if (in->next == NULL) {
+
+            dd("seen only single buffer");
+
+            b = in->buf;
+            lua_pushlstring(L, (char *) b->pos, b->last - b->pos);
+            return 1;
+        }
+
+        dd("seen multiple buffers");
+
+        for (cl = in; cl; cl = cl->next) {
+            b = cl->buf;
+
+            size += b->last - b->pos;
+
+            if (b->last_buf || b->last_in_chain) {
+                break;
+            }
+        }
+
+        data = (u_char *) lua_newuserdata(L, size);
+
+        for (p = data, cl = in; cl; cl = cl->next) {
+            b = cl->buf;
+            p = ngx_copy(p, b->pos, b->last - b->pos);
+
+            if (b->last_buf || b->last_in_chain) {
+                break;
+            }
+        }
+
+        lua_pushlstring(L, (char *) data, size);
+        return 1;
+
+    case 2:
         /* asking for the eof argument */
 
         for (cl = in; cl; cl = cl->next) {
@@ -378,51 +423,28 @@ ngx_http_lua_body_filter_param_get(lua_State *L)
 
         lua_pushboolean(L, 0);
         return 1;
-    }
 
-    /* idx == 1 */
+    case 3:
+        /* asking for the length of data */
 
-    size = 0;
+        size = 0;
 
-    if (in == NULL) {
-        /* being a cleared chain on the Lua land */
-        lua_pushliteral(L, "");
+        for (cl = in; cl; cl = cl->next) {
+            b = cl->buf;
+
+            size += b->last - b->pos;
+
+            if (b->last_buf || b->last_in_chain) {
+                break;
+            }
+        }
+
+        lua_pushnumber(L, size);
         return 1;
     }
 
-    if (in->next == NULL) {
-
-        dd("seen only single buffer");
-
-        b = in->buf;
-        lua_pushlstring(L, (char *) b->pos, b->last - b->pos);
-        return 1;
-    }
-
-    dd("seen multiple buffers");
-
-    for (cl = in; cl; cl = cl->next) {
-        b = cl->buf;
-
-        size += b->last - b->pos;
-
-        if (b->last_buf || b->last_in_chain) {
-            break;
-        }
-    }
-
-    data = (u_char *) lua_newuserdata(L, size);
-
-    for (p = data, cl = in; cl; cl = cl->next) {
-        b = cl->buf;
-        p = ngx_copy(p, b->pos, b->last - b->pos);
-
-        if (b->last_buf || b->last_in_chain) {
-            break;
-        }
-    }
-
-    lua_pushlstring(L, (char *) data, size);
+    /* impossible to reach here */
+    lua_pushnil(L);
     return 1;
 }
 
