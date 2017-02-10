@@ -525,7 +525,8 @@ ngx_http_lua_ffi_exit(ngx_http_request_t *r, int status, u_char *err,
         && status >= NGX_HTTP_SPECIAL_RESPONSE
         && status != NGX_HTTP_REQUEST_TIME_OUT
         && status != NGX_HTTP_CLIENT_CLOSED_REQUEST
-        && status != NGX_HTTP_CLOSE)
+        && status != NGX_HTTP_CLOSE
+        && !(ctx->context & NGX_HTTP_LUA_CONTEXT_BODY_FILTER))
     {
         if (status != (ngx_int_t) r->headers_out.status) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "attempt to "
