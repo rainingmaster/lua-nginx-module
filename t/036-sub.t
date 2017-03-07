@@ -580,7 +580,7 @@ s: a好
 
 === TEST 28: just hit match limit
 --- http_config
-    lua_regex_match_limit 5000;
+    lua_regex_match_limit 5600;
 --- config
     location /re {
         content_by_lua_file html/a.lua;
@@ -617,7 +617,7 @@ error: pcre_exec() failed: -8
 
 === TEST 29: just not hit match limit
 --- http_config
-    lua_regex_match_limit 5100;
+    lua_regex_match_limit 5700;
 --- config
     location /re {
         content_by_lua_file html/a.lua;
