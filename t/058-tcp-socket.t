@@ -3690,3 +3690,31 @@ received: OK
 close: 1 nil
 --- no_error_log
 [error]
+
+
+
+=== TEST 61: resolver send query failed
+--- ONLY
+--- config
+    location /t {
+    	resolver 127.0.0.1:10086 ipv6=off;
+
+        content_by_lua_block {
+            local sock = ngx.socket.tcp()
+
+            for i = 1, 3 do -- retry
+                local ok, err = sock:connect("www.google.com", 80)
+                if not ok then
+                    ngx.say("failed to connect: ", err)
+                end
+            end
+
+            ngx.say("hello!")
+        }
+    }
+--- request
+GET /t
+--- response_body
+hello
+--- error_log
+failed (1: Operation not permitted) while resolving
