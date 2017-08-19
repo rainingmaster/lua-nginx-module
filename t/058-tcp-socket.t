@@ -4,7 +4,7 @@ use Test::Nginx::Socket::Lua;
 
 repeat_each(2);
 
-plan tests => repeat_each() * 190;
+plan tests => repeat_each() * 190 + 6;
 
 our $HtmlDir = html_dir;
 
@@ -3694,7 +3694,6 @@ close: 1 nil
 
 
 === TEST 61: resolver send query failed
---- ONLY
 --- config
     location /t {
     	resolver 127.0.0.1:10086 ipv6=off;
@@ -3715,6 +3714,9 @@ close: 1 nil
 --- request
 GET /t
 --- response_body
-hello
+failed to connect: www.google.com could not be resolved
+failed to connect: www.google.com could not be resolved
+failed to connect: www.google.com could not be resolved
+hello!
 --- error_log
 failed (1: Operation not permitted) while resolving
