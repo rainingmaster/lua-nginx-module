@@ -2,6 +2,7 @@
 
 use Test::Nginx::Socket::Lua;
 
+our $HtmlDir = html_dir;
 #worker_connections(1014);
 #master_process_enabled(1);
 log_level('debug'); # to ensure any log-level can be outputted
@@ -542,3 +543,83 @@ ok
 [error]
 --- error_log eval
 "2: hello\0world, client: "
+
+
+
+=== TEST 27: ngx.log through Lua files and return
+--- http_config eval
+    "lua_package_path '$::HtmlDir/?.lua;./?.lua';"
+--- config
+    location /log {
+        content_by_lua_block {
+            local test = require "test"
+            test.bar()
+            ngx.say("done")
+
+        }
+    }
+--- user_files
+>>> test.lua
+local mylog = require "dolog" .mylog
+
+local _M = {}
+
+function _M.bar()
+    return mylog()
+end
+
+return _M
+>>> dolog.lua
+local _M = {}
+
+function _M.mylog()
+    ngx.log(ngx.ERR, "hello, log", 1234, 3.14159)
+end
+
+return _M
+--- request
+GET /log
+--- response_body
+done
+--- error_log eval
+qr/\[error\] \S+: \S+ \[lua\] dolog.lua:4: bar\(\): hello, log12343.14159/
+
+
+
+=== TEST 28: ngx.log through Lua files and not return
+--- http_config eval
+    "lua_package_path '$::HtmlDir/?.lua;./?.lua';"
+--- config
+    location /log {
+        content_by_lua_block {
+            local test = require "test"
+            test.bar()
+            ngx.say("done")
+
+        }
+    }
+--- user_files
+>>> test.lua
+local mylog = require "dolog" .mylog
+
+local _M = {}
+
+function _M.bar()
+    mylog()
+end
+
+return _M
+>>> dolog.lua
+local _M = {}
+
+function _M.mylog()
+    ngx.log(ngx.ERR, "hello, log", 1234, 3.14159)
+end
+
+return _M
+--- request
+GET /log
+--- response_body
+done
+--- error_log eval
+qr/\[error\] \S+: \S+ \[lua\] dolog.lua:4: mylog\(\): hello, log12343.14159/
