@@ -970,7 +970,7 @@ ngx_http_lua_socket_tcp_connect(lua_State *L)
         n--;
     }
 
-    if (n == 3) {
+    if (n == 3 && !lua_isnil(L, 3)) {
         port = luaL_checkinteger(L, 3);
 
         if (port < 0 || port > 65535) {
@@ -987,7 +987,7 @@ ngx_http_lua_socket_tcp_connect(lua_State *L)
 
         dd("socket key: %s", lua_tostring(L, -1));
 
-    } else { /* n == 2 */
+    } else { /* n == 2 || lua_isnil(L, 3) */
         port = 0;
     }
 

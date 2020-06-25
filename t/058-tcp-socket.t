@@ -4,7 +4,7 @@ use Test::Nginx::Socket::Lua;
 
 repeat_each(2);
 
-plan tests => repeat_each() * 228;
+plan tests => repeat_each() * 231;
 
 our $HtmlDir = html_dir;
 
@@ -4327,3 +4327,36 @@ failed to receive a line: closed []
 close: 1 nil
 --- no_error_log
 [error]
+
+
+
+=== TEST 72: port is optional and accept nil, default is 0
+--- config
+    server_tokens off;
+    location = /t {
+        set $port $TEST_NGINX_SERVER_PORT;
+        content_by_lua_block {
+            local sock = ngx.socket.tcp()
+            sock:settimeout(500)
+            local ok, err = sock:connect("127.0.0.1")
+            if ok then
+                ngx.say("connect success")
+                return
+            end
+
+            local ok, err = sock:connect("127.0.0.1", nil)
+            if ok then
+                ngx.say("connect success")
+                return
+            end
+
+            ngx.say("ok")
+        }
+    }
+
+--- request
+GET /t
+--- response_body
+ok
+--- error_log
+connect to 127.0.0.1:0

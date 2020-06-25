@@ -7269,7 +7269,7 @@ See also [ngx.socket.udp](#ngxsocketudp).
 tcpsock:connect
 ---------------
 
-**syntax:** *ok, err = tcpsock:connect(host, port, options_table?)*
+**syntax:** *ok, err = tcpsock:connect(host, port?, options_table?)*
 
 **syntax:** *ok, err = tcpsock:connect("unix:/path/to/unix-domain.socket", options_table?)*
 
@@ -7287,6 +7287,8 @@ Both IP addresses and domain names can be specified as the `host` argument. In c
 ```
 
 If the nameserver returns multiple IP addresses for the host name, this method will pick up one randomly.
+
+`port` is optional and accept nil(for compatibility with host is a unix domain), and it default value is zero.
 
 In case of error, the method returns `nil` followed by a string describing the error. In case of success, the method returns `1`.
 
