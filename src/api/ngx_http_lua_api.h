@@ -41,6 +41,9 @@ typedef struct {
 } ngx_http_lua_ffi_str_t;
 
 
+typedef int (*ngx_http_lua_vm_resume_handler_pt)(lua_State *co);
+
+
 lua_State *ngx_http_lua_get_global_state(ngx_conf_t *cf);
 
 ngx_http_request_t *ngx_http_lua_get_request(lua_State *L);
@@ -55,6 +58,9 @@ ngx_shm_zone_t *ngx_http_lua_find_zone(u_char *name_data, size_t name_len);
 
 ngx_shm_zone_t *ngx_http_lua_shared_memory_add(ngx_conf_t *cf, ngx_str_t *name,
     size_t size, void *tag);
+
+ngx_int_t ngx_http_lua_vm_resume(ngx_http_request_t *r,
+    ngx_http_lua_vm_resume_handler_pt handler);
 
 
 #endif /* _NGX_HTTP_LUA_API_H_INCLUDED_ */

@@ -213,4 +213,50 @@ ngx_http_lua_shared_memory_init(ngx_shm_zone_t *shm_zone, void *data)
     return NGX_OK;
 }
 
+
+ngx_int_t
+ngx_http_lua_vm_resume(ngx_http_request_t *r,
+    ngx_http_lua_vm_resume_handler_pt handler)
+{
+    int                          nret;
+    lua_State                   *vm;
+    ngx_int_t                    rc;
+    ngx_uint_t                   nreqs;
+    ngx_connection_t            *c;
+    ngx_http_lua_ctx_t          *ctx;
+
+    ctx = ngx_http_get_module_ctx(r, ngx_http_lua_module);
+    if (ctx == NULL) {
+        return NGX_ERROR;
+    }
+
+    ctx->resume_handler = ngx_http_lua_wev_handler;
+
+    c = r->connection;
+    vm = ngx_http_lua_get_lua_vm(r, ctx);
+    nreqs = c->requests;
+
+    nret = handler(ctx->cur_co_ctx->co);
+    rc = ngx_http_lua_run_thread(vm, r, ctx, nret);
+
+    ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                   "lua run thread returned %d", rc);
+
+    if (rc == NGX_AGAIN) {
+        return ngx_http_lua_run_posted_threads(c, vm, r, ctx, nreqs);
+    }
+
+    if (rc == NGX_DONE) {
+        ngx_http_lua_finalize_request(r, NGX_DONE);
+        return ngx_http_lua_run_posted_threads(c, vm, r, ctx, nreqs);
+    }
+
+    if (ctx->entered_content_phase) {
+        ngx_http_lua_finalize_request(r, rc);
+        return NGX_DONE;
+    }
+
+    return rc;
+}
+
 /* vi:set ft=c ts=4 sw=4 et fdm=marker: */
