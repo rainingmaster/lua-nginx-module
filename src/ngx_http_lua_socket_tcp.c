@@ -970,8 +970,8 @@ ngx_http_lua_socket_tcp_connect(lua_State *L)
         n--;
     }
 
-    if (n == 3) {
-        port = luaL_checkinteger(L, 3);
+    if (n == 3 && lua_isnumber(L, 3)) {
+        port = (int) lua_tointeger(L, 3);
 
         if (port < 0 || port > 65535) {
             lua_pushnil(L);
@@ -987,8 +987,14 @@ ngx_http_lua_socket_tcp_connect(lua_State *L)
 
         dd("socket key: %s", lua_tostring(L, -1));
 
-    } else { /* n == 2 */
+    /* unix domain socket */
+    } else if (len > 6 && ngx_strncasecmp(p, (u_char *) "unix:", 5) == 0) {
         port = 0;
+
+    } else {
+        lua_pushnil(L);
+        lua_pushfstring(L, "missing the port number");
+        return 2;
     }
 
     if (!custom_pool) {
