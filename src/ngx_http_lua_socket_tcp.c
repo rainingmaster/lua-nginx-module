@@ -446,7 +446,7 @@ ngx_http_lua_socket_tcp(lua_State *L)
         return luaL_error(L, "no ctx found");
     }
 
-    ngx_http_lua_check_context(L, ctx, NGX_HTTP_LUA_CONTEXT_YIELDABLE);
+    // ngx_http_lua_check_context(L, ctx, NGX_HTTP_LUA_CONTEXT_YIELDABLE);
 
     lua_createtable(L, 5 /* narr */, 1 /* nrec */);
     lua_pushlightuserdata(L, ngx_http_lua_lightudata_mask(
@@ -888,7 +888,7 @@ ngx_http_lua_socket_tcp_connect(lua_State *L)
         return luaL_error(L, "no ctx found");
     }
 
-    ngx_http_lua_check_context(L, ctx, NGX_HTTP_LUA_CONTEXT_YIELDABLE);
+    // ngx_http_lua_check_context(L, ctx, NGX_HTTP_LUA_CONTEXT_YIELDABLE);
 
     luaL_checktype(L, 1, LUA_TTABLE);
 
@@ -1363,6 +1363,332 @@ ngx_http_lua_socket_init_peer_connection_addr_text(ngx_peer_connection_t *pc)
 }
 
 
+ngx_int_t
+ngx_http_lua_event_connect_peer(ngx_peer_connection_t *pc)
+{
+    int                rc, type, value;
+#if (NGX_HAVE_IP_BIND_ADDRESS_NO_PORT || NGX_LINUX)
+    in_port_t          port;
+#endif
+    ngx_int_t          event;
+    ngx_err_t          err;
+    ngx_uint_t         level;
+    ngx_socket_t       s;
+    ngx_event_t       *rev, *wev;
+    ngx_connection_t  *c;
+
+    rc = pc->get(pc, pc->data);
+    if (rc != NGX_OK) {
+        return rc;
+    }
+
+    type = (pc->type ? pc->type : SOCK_STREAM);
+
+#if (NGX_HAVE_SOCKET_CLOEXEC)
+    s = ngx_socket(pc->sockaddr->sa_family, type | SOCK_CLOEXEC, 0);
+
+#else
+    s = ngx_socket(pc->sockaddr->sa_family, type, 0);
+
+#endif
+
+
+    ngx_log_debug2(NGX_LOG_DEBUG_EVENT, pc->log, 0, "%s socket %d",
+                   (type == SOCK_STREAM) ? "stream" : "dgram", s);
+
+    if (s == (ngx_socket_t) -1) {
+        ngx_log_error(NGX_LOG_ALERT, pc->log, ngx_socket_errno,
+                      ngx_socket_n " failed");
+        return NGX_ERROR;
+    }
+
+
+    c = ngx_get_connection(s, pc->log);
+
+    if (c == NULL) {
+        if (ngx_close_socket(s) == -1) {
+            ngx_log_error(NGX_LOG_ALERT, pc->log, ngx_socket_errno,
+                          ngx_close_socket_n " failed");
+        }
+
+        return NGX_ERROR;
+    }
+
+    c->type = type;
+
+    if (pc->rcvbuf) {
+        if (setsockopt(s, SOL_SOCKET, SO_RCVBUF,
+                       (const void *) &pc->rcvbuf, sizeof(int)) == -1)
+        {
+            ngx_log_error(NGX_LOG_ALERT, pc->log, ngx_socket_errno,
+                          "setsockopt(SO_RCVBUF) failed");
+            goto failed;
+        }
+    }
+
+    if (pc->so_keepalive) {
+        value = 1;
+
+        if (setsockopt(s, SOL_SOCKET, SO_KEEPALIVE,
+                       (const void *) &value, sizeof(int))
+            == -1)
+        {
+            ngx_log_error(NGX_LOG_ALERT, pc->log, ngx_socket_errno,
+                          "setsockopt(SO_KEEPALIVE) failed, ignored");
+        }
+    }
+
+    // if (ngx_nonblocking(s) == -1) {
+    //     ngx_log_error(NGX_LOG_ALERT, pc->log, ngx_socket_errno,
+    //                   ngx_nonblocking_n " failed");
+
+    //     goto failed;
+    // }
+
+#if (NGX_HAVE_FD_CLOEXEC)
+    if (ngx_cloexec(s) == -1) {
+        ngx_log_error(NGX_LOG_ALERT, pc->log, ngx_socket_errno,
+                      ngx_cloexec_n " failed");
+
+        goto failed;
+    }
+#endif
+
+    if (pc->local) {
+
+#if (NGX_HAVE_TRANSPARENT_PROXY)
+        if (pc->transparent) {
+            if (ngx_event_connect_set_transparent(pc, s) != NGX_OK) {
+                goto failed;
+            }
+        }
+#endif
+
+#if (NGX_HAVE_IP_BIND_ADDRESS_NO_PORT || NGX_LINUX)
+        port = ngx_inet_get_port(pc->local->sockaddr);
+#endif
+
+#if (NGX_HAVE_IP_BIND_ADDRESS_NO_PORT)
+
+        if (pc->sockaddr->sa_family != AF_UNIX && port == 0) {
+            static int  bind_address_no_port = 1;
+
+            if (bind_address_no_port) {
+                if (setsockopt(s, IPPROTO_IP, IP_BIND_ADDRESS_NO_PORT,
+                               (const void *) &bind_address_no_port,
+                               sizeof(int)) == -1)
+                {
+                    err = ngx_socket_errno;
+
+                    if (err != NGX_EOPNOTSUPP && err != NGX_ENOPROTOOPT) {
+                        ngx_log_error(NGX_LOG_ALERT, pc->log, err,
+                                      "setsockopt(IP_BIND_ADDRESS_NO_PORT) "
+                                      "failed, ignored");
+
+                    } else {
+                        bind_address_no_port = 0;
+                    }
+                }
+            }
+        }
+
+#endif
+
+#if (NGX_LINUX)
+
+        if (pc->type == SOCK_DGRAM && port != 0) {
+            int  reuse_addr = 1;
+
+            if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR,
+                           (const void *) &reuse_addr, sizeof(int))
+                 == -1)
+            {
+                ngx_log_error(NGX_LOG_ALERT, pc->log, ngx_socket_errno,
+                              "setsockopt(SO_REUSEADDR) failed");
+                goto failed;
+            }
+        }
+
+#endif
+
+        if (bind(s, pc->local->sockaddr, pc->local->socklen) == -1) {
+            ngx_log_error(NGX_LOG_CRIT, pc->log, ngx_socket_errno,
+                          "bind(%V) failed", &pc->local->name);
+
+            goto failed;
+        }
+    }
+
+    if (type == SOCK_STREAM) {
+        c->recv = ngx_recv;
+        c->send = ngx_send;
+        c->recv_chain = ngx_recv_chain;
+        c->send_chain = ngx_send_chain;
+
+        c->sendfile = 1;
+
+        if (pc->sockaddr->sa_family == AF_UNIX) {
+            c->tcp_nopush = NGX_TCP_NOPUSH_DISABLED;
+            c->tcp_nodelay = NGX_TCP_NODELAY_DISABLED;
+
+#if (NGX_SOLARIS)
+            /* Solaris's sendfilev() supports AF_NCA, AF_INET, and AF_INET6 */
+            c->sendfile = 0;
+#endif
+        }
+
+    } else { /* type == SOCK_DGRAM */
+        c->recv = ngx_udp_recv;
+        c->send = ngx_send;
+        c->send_chain = ngx_udp_send_chain;
+    }
+
+    c->log_error = pc->log_error;
+
+    rev = c->read;
+    wev = c->write;
+
+    rev->log = pc->log;
+    wev->log = pc->log;
+
+    pc->connection = c;
+
+    c->number = ngx_atomic_fetch_add(ngx_connection_counter, 1);
+
+    if (ngx_add_conn) {
+        if (ngx_add_conn(c) == NGX_ERROR) {
+            goto failed;
+        }
+    }
+
+    ngx_log_debug3(NGX_LOG_DEBUG_EVENT, pc->log, 0,
+                   "connect to %V, fd:%d #%uA", pc->name, s, c->number);
+
+    rc = connect(s, pc->sockaddr, pc->socklen);
+
+    if (rc == -1) {
+        err = ngx_socket_errno;
+
+
+        if (err != NGX_EINPROGRESS
+#if (NGX_WIN32)
+            /* Winsock returns WSAEWOULDBLOCK (NGX_EAGAIN) */
+            && err != NGX_EAGAIN
+#endif
+            )
+        {
+            if (err == NGX_ECONNREFUSED
+#if (NGX_LINUX)
+                /*
+                 * Linux returns EAGAIN instead of ECONNREFUSED
+                 * for unix sockets if listen queue is full
+                 */
+                || err == NGX_EAGAIN
+#endif
+                || err == NGX_ECONNRESET
+                || err == NGX_ENETDOWN
+                || err == NGX_ENETUNREACH
+                || err == NGX_EHOSTDOWN
+                || err == NGX_EHOSTUNREACH)
+            {
+                level = NGX_LOG_ERR;
+
+            } else {
+                level = NGX_LOG_CRIT;
+            }
+
+            ngx_log_error(level, c->log, err, "connect() to %V failed",
+                          pc->name);
+
+            ngx_close_connection(c);
+            pc->connection = NULL;
+
+            return NGX_DECLINED;
+        }
+    }
+
+    if (ngx_add_conn) {
+        if (rc == -1) {
+
+            /* NGX_EINPROGRESS */
+
+            return NGX_AGAIN;
+        }
+
+        ngx_log_debug0(NGX_LOG_DEBUG_EVENT, pc->log, 0, "connected");
+
+        wev->ready = 1;
+
+        return NGX_OK;
+    }
+
+    if (ngx_event_flags & NGX_USE_IOCP_EVENT) {
+
+        ngx_log_debug1(NGX_LOG_DEBUG_EVENT, pc->log, ngx_socket_errno,
+                       "connect(): %d", rc);
+
+        if (ngx_blocking(s) == -1) {
+            ngx_log_error(NGX_LOG_ALERT, pc->log, ngx_socket_errno,
+                          ngx_blocking_n " failed");
+            goto failed;
+        }
+
+        /*
+         * FreeBSD's aio allows to post an operation on non-connected socket.
+         * NT does not support it.
+         *
+         * TODO: check in Win32, etc. As workaround we can use NGX_ONESHOT_EVENT
+         */
+
+        rev->ready = 1;
+        wev->ready = 1;
+
+        return NGX_OK;
+    }
+
+    if (ngx_event_flags & NGX_USE_CLEAR_EVENT) {
+
+        /* kqueue */
+
+        event = NGX_CLEAR_EVENT;
+
+    } else {
+
+        /* select, poll, /dev/poll */
+
+        event = NGX_LEVEL_EVENT;
+    }
+
+    if (ngx_add_event(rev, NGX_READ_EVENT, event) != NGX_OK) {
+        goto failed;
+    }
+
+    if (rc == -1) {
+
+        /* NGX_EINPROGRESS */
+
+        if (ngx_add_event(wev, NGX_WRITE_EVENT, event) != NGX_OK) {
+            goto failed;
+        }
+
+        return NGX_AGAIN;
+    }
+
+    ngx_log_debug0(NGX_LOG_DEBUG_EVENT, pc->log, 0, "connected");
+
+    wev->ready = 1;
+
+    return NGX_OK;
+
+failed:
+
+    ngx_close_connection(c);
+    pc->connection = NULL;
+
+    return NGX_ERROR;
+}
+
+
 static int
 ngx_http_lua_socket_resolve_retval_handler(ngx_http_request_t *r,
     ngx_http_lua_socket_tcp_upstream_t *u, lua_State *L)
@@ -1399,7 +1725,9 @@ ngx_http_lua_socket_resolve_retval_handler(ngx_http_request_t *r,
 
     pc->get = ngx_http_lua_socket_tcp_get_peer;
 
-    rc = ngx_event_connect_peer(pc);
+    // make it skip nonblocking in this part, and all read/write will become blocking??
+    // and this socket(connection) cann't use again in nonblocking phase
+    rc = ngx_http_lua_event_connect_peer(pc);
 
     if (rc == NGX_ERROR) {
         u->socket_errno = ngx_socket_errno;
@@ -2615,7 +2943,7 @@ success:
         }
 
 #if 1
-        if (rev->active && !rev->ready) {
+        if (false && rev->active && !rev->ready) {
             rc = NGX_AGAIN;
             break;
         }
@@ -2624,12 +2952,22 @@ success:
         ngx_log_debug3(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
                        "lua tcp socket try to recv data %uz: \"%V?%V\"",
                        size, &r->uri, &r->args);
+    
+        int flags = fcntl(c->fd, F_GETFD);
+        if ((flags & O_NONBLOCK) == O_NONBLOCK) {
+            if (ngx_blocking(c->fd) == -1) {
+                ngx_log_error(NGX_LOG_ALERT, c->log, ngx_socket_errno,
+                              ngx_blocking_n " failed");
+            }
+        }
+
+        rev->available = 59;
 
         n = c->recv(c, b->last, size);
 
         dd("read event ready: %d", (int) c->read->ready);
 
-        read = 1;
+        // read = 1;
 
         ngx_log_debug3(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
                        "lua tcp socket recv returned %d: \"%V?%V\"",
