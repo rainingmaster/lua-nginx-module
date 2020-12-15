@@ -6,7 +6,7 @@ use File::Basename;
 
 repeat_each(2);
 
-plan tests => repeat_each() * 211;
+plan tests => repeat_each() * 213;
 
 $ENV{TEST_NGINX_HTML_DIR} ||= html_dir();
 $ENV{TEST_NGINX_MEMCACHED_PORT} ||= 11211;
@@ -2565,7 +2565,6 @@ qr/\[error\] .* ngx.socket sslhandshake: expecting 1 ~ 5 arguments \(including t
 
 
 === TEST 31: www.google.com in init_worker_by_lua
---- ONLY
 --- http_config
     init_worker_by_lua_block {
         local sock = ngx.socket.tcp()
@@ -2576,7 +2575,7 @@ qr/\[error\] .* ngx.socket sslhandshake: expecting 1 ~ 5 arguments \(including t
             return
         end
 
-        ngx.log(ngx.ERR, "connected: ", ok)
+        ngx.log(ngx.INFO, "connected: ", ok)
 
         local sess, err = sock:sslhandshake()
         if not sess then
@@ -2586,7 +2585,7 @@ qr/\[error\] .* ngx.socket sslhandshake: expecting 1 ~ 5 arguments \(including t
 
         ngx.log(ngx.INFO, "ssl handshake: ", type(sess))
 
-        local req = "GET / HTTP/1.1\\r\\nHost: www.google.com\\r\\nConnection: close\\r\\n\\r\\n"
+        local req = "GET / HTTP/1.1\r\nHost: www.google.com\r\nConnection: close\r\n\r\n"
         local bytes, err = sock:send(req)
         if not bytes then
             ngx.log(ngx.ERR, "failed to send http request: ", err)
@@ -2623,13 +2622,5 @@ sent http request: 59 bytes.
 received: HTTP/1.1 (?:200 OK|302 Found)
 close: 1 nil
 \z
---- grep_error_log eval: qr/lua ssl (?:set|save|free) session: [0-9A-F]+/
---- grep_error_log_out eval
-qr/^lua ssl save session: ([0-9A-F]+)
-lua ssl free session: ([0-9A-F]+)
-$/
---- no_error_log
-lua ssl server name:
-SSL reused session
 [error]
 --- timeout: 5
